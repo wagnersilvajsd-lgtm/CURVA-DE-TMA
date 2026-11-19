@@ -1,0 +1,6 @@
+{
+  "name": "PulseOps Call Center Analytics",
+  "description": "Plataforma de análise operacional de Call Center para planilhas XLSX e CSV com cálculo de TMA em minutos e identificação de horários de pico.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
