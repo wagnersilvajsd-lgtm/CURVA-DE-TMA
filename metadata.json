@@ -1,0 +1,6 @@
+{
+  "name": "Monitor de TMA e Picos",
+  "description": "Sistema de análise de curva de TMA, picos de maiores fluxos de ligação e média por atendente para operações Voice e Chat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
