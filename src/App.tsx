@@ -50,6 +50,8 @@ export default function App() {
   // Operational Filters
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all');
   const [selectedDate, setSelectedDate] = useState<string>('all');
+  const [dateStart, setDateStart] = useState<string>('');
+  const [dateEnd, setDateEnd] = useState<string>('');
   const [selectedQueue, setSelectedQueue] = useState<string>('all');
   const [selectedChatbot, setSelectedChatbot] = useState<string>('all');
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
@@ -58,6 +60,8 @@ export default function App() {
   const resetFilters = () => {
     setSegmentFilter('all');
     setSelectedDate('all');
+    setDateStart('');
+    setDateEnd('');
     setSelectedQueue('all');
     setSelectedChatbot('all');
     setSelectedHour(null);
@@ -119,6 +123,8 @@ export default function App() {
 
     return {
       dates,
+      minDate: dates[0]?.iso ?? '',
+      maxDate: dates[dates.length - 1]?.iso ?? '',
       queues: Array.from(queuesSet).sort((a, b) => a.localeCompare(b)),
       chatbots: Array.from(chatbotsSet).sort((a, b) => a.localeCompare(b)),
     };
@@ -129,14 +135,20 @@ export default function App() {
     if (!workbook) return [];
     return workbook.records.filter((r) => {
       if (segmentFilter !== 'all' && r.segment !== segmentFilter) return false;
-      if (selectedDate !== 'all' && r.attendanceDate !== selectedDate) return false;
+      if (selectedDate !== 'all') {
+        if (r.attendanceDate !== selectedDate) return false;
+      } else if (dateStart || dateEnd) {
+        if (!r.attendanceDate || r.attendanceDate === 'Sem data') return false;
+        if (dateStart && r.attendanceDate < dateStart) return false;
+        if (dateEnd && r.attendanceDate > dateEnd) return false;
+      }
       if (selectedQueue !== 'all' && r.queue !== selectedQueue) return false;
       if (selectedChatbot !== 'all' && (r.segment !== 'chat' || r.chatbotSource !== selectedChatbot)) {
         return false;
       }
       return true;
     });
-  }, [workbook, segmentFilter, selectedDate, selectedQueue, selectedChatbot]);
+  }, [workbook, segmentFilter, selectedDate, dateStart, dateEnd, selectedQueue, selectedChatbot]);
 
   // Records further filtered by clicked chart hour
   const scopedRecords = useMemo(() => {
@@ -180,6 +192,8 @@ export default function App() {
   const hasActiveFilters =
     segmentFilter !== 'all' ||
     selectedDate !== 'all' ||
+    dateStart !== '' ||
+    dateEnd !== '' ||
     selectedQueue !== 'all' ||
     selectedChatbot !== 'all' ||
     selectedHour !== null;
@@ -412,11 +426,18 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* Date Filter */}
+                    {/* Date Filter (Single Day) */}
                     <select
-                      aria-label="Filtrar por data do atendimento"
+                      aria-label="Filtrar por dia do atendimento"
                       value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedDate(val);
+                        if (val !== 'all') {
+                          setDateStart('');
+                          setDateEnd('');
+                        }
+                      }}
                       className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 focus:border-blue-600 focus:bg-white focus:outline-none"
                     >
                       <option value="all">Todas as datas ({filterOptions.dates.length})</option>
@@ -426,6 +447,38 @@ export default function App() {
                         </option>
                       ))}
                     </select>
+
+                    {/* Date Range Filter (Período de Data) */}
+                    <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
+                      <span className="font-medium text-slate-500 whitespace-nowrap">Período</span>
+                      <input
+                        type="date"
+                        aria-label="Data inicial do período"
+                        value={dateStart}
+                        min={filterOptions.minDate || undefined}
+                        max={dateEnd || filterOptions.maxDate || undefined}
+                        onChange={(e) => {
+                          setDateStart(e.target.value);
+                          if (e.target.value) setSelectedDate('all');
+                        }}
+                        className="bg-transparent font-mono text-[11px] font-medium text-slate-700 tabular-nums focus:outline-none"
+                      />
+                      <span className="text-slate-400" aria-hidden="true">
+                        até
+                      </span>
+                      <input
+                        type="date"
+                        aria-label="Data final do período"
+                        value={dateEnd}
+                        min={dateStart || filterOptions.minDate || undefined}
+                        max={filterOptions.maxDate || undefined}
+                        onChange={(e) => {
+                          setDateEnd(e.target.value);
+                          if (e.target.value) setSelectedDate('all');
+                        }}
+                        className="bg-transparent font-mono text-[11px] font-medium text-slate-700 tabular-nums focus:outline-none"
+                      />
+                    </div>
 
                     {/* Queue Filter */}
                     <select
