@@ -92,13 +92,13 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
 
   const isDaily = chartMode === 'daily';
   const width = 960;
-  const height = isDaily ? 368 : 340;
-  const pad = {top: 28, right: 64, bottom: isDaily ? 70 : 42, left: 52};
+  const height = isDaily ? 378 : 350;
+  const pad = {top: 38, right: 64, bottom: isDaily ? 70 : 42, left: 52};
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
   const maxVol = Math.max(4, ...items.map((d) => d.totalCount));
-  const volCeiling = Math.ceil(maxVol * 1.15);
+  const volCeiling = Math.ceil(maxVol * 1.24);
 
   const activeTmas = items.filter((d) => d.totalCount > 0).map((d) => d.tmaSeconds);
   const maxTma = Math.max(60, overallTmaSeconds * 1.35, ...activeTmas.map((v) => v * 1.15));
@@ -465,6 +465,40 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                 strokeWidth={2}
                 className="pointer-events-none"
               />
+            );
+          })}
+
+          {/* Volume Values at the Top of Each Column */}
+          {items.map((item, idx) => {
+            if (item.totalCount <= 0) return null;
+            const centerX = pad.left + idx * slotW + slotW / 2;
+            const barY = yVol(item.totalCount);
+            const tmaY = yTma(item.tmaSeconds);
+            const dotNearBarTop = tmaY <= barY + 6 && tmaY >= barY - 26;
+            const labelY = Math.max(pad.top + 22, dotNearBarTop ? tmaY - 8 : barY - 6);
+            const isHovered = hoveredIndex === idx;
+            const isSelected = chartMode === 'hourly' && selectedHour !== null && selectedHour === item.hour;
+
+            return (
+              <text
+                key={`vol-label-${item.key}`}
+                x={centerX}
+                y={labelY}
+                textAnchor="start"
+                dominantBaseline="central"
+                transform={`rotate(-90 ${centerX} ${labelY})`}
+                stroke="#FFFFFF"
+                strokeWidth={3.5}
+                strokeLinejoin="round"
+                style={{paintOrder: 'stroke'}}
+                className={`pointer-events-none font-mono ${
+                  items.length > 28 ? 'text-[9px]' : 'text-[10px]'
+                } tabular-nums ${
+                  isHovered || isSelected ? 'fill-slate-900 font-semibold' : 'fill-slate-700 font-medium'
+                }`}
+              >
+                {item.totalCount}
+              </text>
             );
           })}
         </svg>
