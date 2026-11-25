@@ -73,7 +73,7 @@ export const ChannelQueueBreakdown: React.FC<ChannelQueueBreakdownProps> = ({
                   </div>
                   <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200/80">
                     <div
-                      className="h-full rounded-full bg-blue-700"
+                      className="h-full rounded-full bg-blue-400"
                       style={{width: `${widthPct}%`}}
                     />
                   </div>
@@ -114,7 +114,7 @@ export const ChannelQueueBreakdown: React.FC<ChannelQueueBreakdownProps> = ({
                     </div>
                     <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
                       <div
-                        className="h-full rounded-full bg-teal-600"
+                        className="h-full rounded-full bg-teal-400"
                         style={{width: `${Math.max(4, src.sharePercent)}%`}}
                       />
                     </div>

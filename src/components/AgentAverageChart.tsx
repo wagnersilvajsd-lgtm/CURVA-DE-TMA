@@ -178,11 +178,11 @@ export const AgentAverageChart: React.FC<AgentAverageChartProps> = ({
                 const barColor =
                   metricView === 'tma'
                     ? agent.tmaSeconds > overallTmaSeconds * 1.15
-                      ? 'bg-amber-600'
-                      : 'bg-slate-600'
+                      ? 'bg-amber-300'
+                      : 'bg-slate-300'
                     : isAboveAvg
-                      ? 'bg-blue-700'
-                      : 'bg-slate-400';
+                      ? 'bg-blue-300'
+                      : 'bg-slate-300';
 
                 const voiceShare = agent.totalCalls > 0 ? (agent.voiceCalls / agent.totalCalls) * 100 : 0;
 
@@ -193,7 +193,7 @@ export const AgentAverageChart: React.FC<AgentAverageChartProps> = ({
                     onClick={() => onSelectAgent(isSelected ? null : agent.agent)}
                     className={`group flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors sm:flex-row sm:items-center sm:gap-4 cursor-pointer ${
                       isSelected
-                        ? 'border-blue-600 bg-blue-50/50'
+                        ? 'border-blue-500 bg-blue-50/40'
                         : 'border-slate-100 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
@@ -209,19 +209,19 @@ export const AgentAverageChart: React.FC<AgentAverageChartProps> = ({
                     </div>
 
                     {/* Horizontal Bar with Team Average Marker */}
-                    <div className="relative h-6 flex-1 rounded bg-slate-200/70">
+                    <div className="relative h-6 flex-1 rounded bg-slate-100">
                       {metricView !== 'tma' && segmentFilter === 'all' ? (
                         <div
                           className="flex h-full overflow-hidden rounded transition-all duration-200"
                           style={{width: `${pct}%`}}
                         >
                           <div
-                            className="h-full bg-blue-700"
+                            className="h-full bg-blue-300"
                             style={{width: `${voiceShare}%`}}
                             title={`Voice: ${agent.voiceCalls}`}
                           />
                           <div
-                            className="h-full bg-teal-600"
+                            className="h-full bg-teal-300"
                             style={{width: `${100 - voiceShare}%`}}
                             title={`Chat: ${agent.chatCalls}`}
                           />
@@ -235,7 +235,7 @@ export const AgentAverageChart: React.FC<AgentAverageChartProps> = ({
 
                       {/* Team Average Vertical Reference Line */}
                       <div
-                        className="pointer-events-none absolute top-0 bottom-0 w-px border-l border-dashed border-slate-800/70"
+                        className="pointer-events-none absolute top-0 bottom-0 w-px border-l border-dashed border-slate-700/70"
                         style={{left: `${teamRefPercent}%`}}
                       />
 
@@ -245,7 +245,7 @@ export const AgentAverageChart: React.FC<AgentAverageChartProps> = ({
                         style={{
                           left: pct > 78 ? undefined : `calc(${pct}% + 8px)`,
                           right: pct > 78 ? '8px' : undefined,
-                          color: pct > 78 ? '#FFFFFF' : '#0F172A',
+                          color: '#0F172A',
                         }}
                       >
                         {metricView === 'avgPerDay'
@@ -350,7 +350,7 @@ export const AgentAverageChart: React.FC<AgentAverageChartProps> = ({
                       <div key={hour} className="flex flex-1 flex-col items-center gap-1">
                         <div className="flex h-11 w-full items-end">
                           <div
-                            className={`w-full rounded-t-xs ${vol > 0 ? 'bg-blue-700' : 'bg-slate-100'}`}
+                            className={`w-full rounded-t-xs ${vol > 0 ? 'bg-blue-400' : 'bg-slate-100'}`}
                             style={{height: `${Math.max(vol > 0 ? 12 : 4, hPct)}%`}}
                             title={`${String(hour).padStart(2, '0')}h: ${vol} atendimentos`}
                           />

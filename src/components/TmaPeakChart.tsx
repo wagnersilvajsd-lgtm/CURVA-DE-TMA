@@ -204,25 +204,24 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
           {segmentFilter === 'all' && splitChannels ? (
             <>
               <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-xs bg-blue-700" aria-hidden="true" />
+                <span className="h-2.5 w-2.5 rounded-xs bg-blue-400" aria-hidden="true" />
                 <span>Volume Voice</span>
               </span>
               <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-xs bg-teal-600" aria-hidden="true" />
+                <span className="h-2.5 w-2.5 rounded-xs bg-teal-400" aria-hidden="true" />
                 <span>Volume Chat</span>
               </span>
             </>
           ) : (
-            <>
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-xs bg-blue-700" aria-hidden="true" />
-                <span>Horário de Pico</span>
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-xs bg-slate-300" aria-hidden="true" />
-                <span>Fluxo Regular</span>
-              </span>
-            </>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={`h-2.5 w-2.5 rounded-xs ${
+                  segmentFilter === 'chat' ? 'bg-teal-400' : 'bg-blue-400'
+                }`}
+                aria-hidden="true"
+              />
+              <span>Volume de Atendimentos</span>
+            </span>
           )}
           <span className="inline-flex items-center gap-2">
             <span className="h-0.5 w-4 bg-amber-600" aria-hidden="true" />
@@ -338,25 +337,19 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                 }}
                 className={chartMode === 'hourly' && item.totalCount > 0 ? 'cursor-pointer' : ''}
               >
-                {/* Peak / Hover / Selected Column Band */}
-                {(item.isPeak || isHovered || isSelected) && (
+                {/* Subtle Hover / Selected Column Band only */}
+                {(isHovered || isSelected) && (
                   <rect
                     x={pad.left + idx * slotW + 1}
                     y={pad.top}
                     width={Math.max(4, slotW - 2)}
                     height={plotH}
                     rx={4}
-                    fill={
-                      isSelected
-                        ? 'rgba(29, 78, 216, 0.12)'
-                        : isHovered
-                          ? 'rgba(15, 23, 42, 0.04)'
-                          : 'rgba(29, 78, 216, 0.045)'
-                    }
+                    fill={isSelected ? 'rgba(59, 130, 246, 0.08)' : 'rgba(15, 23, 42, 0.035)'}
                   />
                 )}
 
-                {/* Volume Bar */}
+                {/* Volume Bar (soft uniform palette without harsh highlight contrast) */}
                 {item.totalCount > 0 && !showSplit && (
                   <rect
                     x={barX}
@@ -365,13 +358,15 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                     height={Math.max(2, totalH)}
                     rx={3}
                     fill={
-                      isSelected || item.isPeak
+                      isSelected
                         ? segmentFilter === 'chat'
-                          ? '#0F766E'
-                          : '#1D4ED8'
-                        : '#CBD5E1'
+                          ? '#14B8A6'
+                          : '#3B82F6'
+                        : segmentFilter === 'chat'
+                          ? '#5EEAD4'
+                          : '#93C5FD'
                     }
-                    opacity={isHovered ? 0.92 : 1}
+                    opacity={isHovered ? 0.85 : 1}
                   />
                 )}
 
@@ -385,7 +380,8 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                         width={barW}
                         height={Math.max(1, voiceH)}
                         rx={item.chatCount === 0 ? 3 : 0}
-                        fill={item.isPeak || isSelected ? '#1D4ED8' : '#60A5FA'}
+                        fill={isSelected ? '#3B82F6' : '#60A5FA'}
+                        opacity={isHovered ? 0.88 : 0.95}
                       />
                     )}
                     {/* Chat top segment */}
@@ -396,22 +392,11 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                         width={barW}
                         height={Math.max(1, chatH)}
                         rx={2}
-                        fill={item.isPeak || isSelected ? '#0F766E' : '#5EEAD4'}
+                        fill={isSelected ? '#14B8A6' : '#5EEAD4'}
+                        opacity={isHovered ? 0.88 : 0.95}
                       />
                     )}
                   </>
-                )}
-
-                {/* Peak Marker Label at top of peak bar */}
-                {item.isPeak && item.totalCount > 0 && (
-                  <text
-                    x={centerX}
-                    y={Math.max(pad.top + 10, barY - 6)}
-                    textAnchor="middle"
-                    className="fill-blue-800 font-mono text-[10px] font-semibold tabular-nums"
-                  >
-                    {item.totalCount}
-                  </text>
                 )}
 
                 {/* X-Axis Label */}
@@ -420,7 +405,7 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                   y={height - 16}
                   textAnchor="middle"
                   className={`font-mono text-[11px] tabular-nums ${
-                    item.isPeak || isSelected ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
+                    isSelected ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
                   }`}
                 >
                   {item.label}
@@ -453,16 +438,15 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
 
           {/* TMA Curve Nodes */}
           {tmaPoints.map((pt) => {
-            const item = items[pt.idx];
             const isHovered = hoveredIndex === pt.idx;
             return (
               <circle
                 key={`dot-${pt.idx}`}
                 cx={pt.x}
                 cy={pt.y}
-                r={isHovered ? 5.5 : item.isTmaSpike ? 4.5 : 3.2}
-                fill={item.isTmaSpike ? '#DC2626' : '#FFFFFF'}
-                stroke={item.isTmaSpike ? '#FFFFFF' : '#D97706'}
+                r={isHovered ? 5.5 : 3.4}
+                fill="#FFFFFF"
+                stroke="#D97706"
                 strokeWidth={2}
                 className="pointer-events-none"
               />
