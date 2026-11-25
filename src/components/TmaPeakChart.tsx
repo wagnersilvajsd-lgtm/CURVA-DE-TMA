@@ -92,20 +92,20 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
 
   const isDaily = chartMode === 'daily';
   const width = 960;
-  const height = isDaily ? 378 : 350;
-  const pad = {top: 38, right: 64, bottom: isDaily ? 70 : 42, left: 52};
+  const height = isDaily ? 368 : 340;
+  const pad = {top: 28, right: 64, bottom: isDaily ? 70 : 42, left: 52};
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
   const maxVol = Math.max(4, ...items.map((d) => d.totalCount));
-  const volCeiling = Math.ceil(maxVol * 1.24);
+  const volCeiling = Math.ceil(maxVol * 1.15);
 
   const activeTmas = items.filter((d) => d.totalCount > 0).map((d) => d.tmaSeconds);
   const maxTma = Math.max(60, overallTmaSeconds * 1.35, ...activeTmas.map((v) => v * 1.15));
   const tmaCeiling = Math.ceil(maxTma / 60) * 60;
 
   const slotW = items.length > 0 ? plotW / items.length : plotW;
-  const barW = Math.min(34, Math.max(10, slotW * 0.56));
+  const barW = Math.min(36, Math.max(12, slotW * 0.62));
 
   const yVol = (v: number) => pad.top + plotH - (v / volCeiling) * plotH;
   const yTma = (s: number) => pad.top + plotH - (s / tmaCeiling) * plotH;
@@ -468,14 +468,24 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
             );
           })}
 
-          {/* Volume Values at the Top of Each Column */}
+          {/* Volume Values Inside Each Column */}
           {items.map((item, idx) => {
             if (item.totalCount <= 0) return null;
             const centerX = pad.left + idx * slotW + slotW / 2;
+            const barBottomY = pad.top + plotH;
             const barY = yVol(item.totalCount);
+            const totalH = barBottomY - barY;
             const tmaY = yTma(item.tmaSeconds);
-            const dotNearBarTop = tmaY <= barY + 6 && tmaY >= barY - 26;
-            const labelY = Math.max(pad.top + 22, dotNearBarTop ? tmaY - 8 : barY - 6);
+            const fitsInside = totalH >= 38;
+
+            let labelY = fitsInside ? barY + totalH / 2 : barBottomY - 4;
+            if (fitsInside && totalH >= 64 && Math.abs(labelY - tmaY) < 16) {
+              labelY =
+                tmaY > labelY
+                  ? Math.max(barY + 20, barY + totalH * 0.28)
+                  : Math.min(barBottomY - 20, barY + totalH * 0.72);
+            }
+
             const isHovered = hoveredIndex === idx;
             const isSelected = chartMode === 'hourly' && selectedHour !== null && selectedHour === item.hour;
 
@@ -484,17 +494,13 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                 key={`vol-label-${item.key}`}
                 x={centerX}
                 y={labelY}
-                textAnchor="start"
+                textAnchor={fitsInside ? 'middle' : 'start'}
                 dominantBaseline="central"
                 transform={`rotate(-90 ${centerX} ${labelY})`}
-                stroke="#FFFFFF"
-                strokeWidth={3.5}
-                strokeLinejoin="round"
-                style={{paintOrder: 'stroke'}}
                 className={`pointer-events-none font-mono ${
                   items.length > 28 ? 'text-[9px]' : 'text-[10px]'
                 } tabular-nums ${
-                  isHovered || isSelected ? 'fill-slate-900 font-semibold' : 'fill-slate-700 font-medium'
+                  isHovered || isSelected ? 'fill-slate-950 font-semibold' : 'fill-slate-900 font-medium'
                 }`}
               >
                 {item.totalCount}
