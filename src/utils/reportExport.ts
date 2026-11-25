@@ -395,8 +395,7 @@ export function exportAnalyticalReportWorkbook(payload: AnalyticalReportPayload)
   const voiceRecords = payload.records
     .filter((r) => r.segment === 'voice')
     .map((r) => ({
-      'HORARIO DE ENTRADA': r.entryTimeFormatted,
-      'DATA DA ENTRADA': r.attendanceDateDisplay,
+      'DATA DE ENTRADA': `${r.attendanceDateDisplay} ${r.entryTimeFormatted}`,
       'DATA DO ENCERRAMENTO': r.closingDateDisplay,
       DURAÇÃO: r.durationFormatted,
       ATENDENTE: r.agent,
@@ -410,8 +409,7 @@ export function exportAnalyticalReportWorkbook(payload: AnalyticalReportPayload)
   const chatRecords = payload.records
     .filter((r) => r.segment === 'chat')
     .map((r) => ({
-      'HORARIO DE ENTRADA': r.entryTimeFormatted,
-      'DATA DA ENTRADA': r.attendanceDateDisplay,
+      'DATA DE ENTRADA': `${r.attendanceDateDisplay} ${r.entryTimeFormatted}`,
       'DATA DO ENCERRAMENTO': r.closingDateDisplay,
       DURAÇÃO: r.durationFormatted,
       ATENDENTE: r.agent,

@@ -23,8 +23,8 @@ const COLUMN_ALIASES = {
     'inicio',
   ],
   attendanceDate: [
-    'data da entrada',
     'data de entrada',
+    'data da entrada',
     'data entrada',
     'data do atendimento',
     'data atendimento',
@@ -133,6 +133,11 @@ function buildHeaderMap(headers: string[]): Partial<Record<ColumnKey, string>> {
       }
     }
   });
+
+  // If no separate time column exists, extract entry time from DATA DE ENTRADA
+  if (!map.entryTime && map.attendanceDate) {
+    map.entryTime = map.attendanceDate;
+  }
 
   return map;
 }
@@ -337,11 +342,8 @@ function parseSheetRows(
   const headers = Object.keys(formattedRows[0]);
   const colMap = buildHeaderMap(headers);
 
-  if (!colMap.entryTime) {
-    warnings.push(`Aba "${sheetName}": coluna "HORARIO DE ENTRADA" não encontrada automaticamente.`);
-  }
   if (!colMap.attendanceDate) {
-    warnings.push(`Aba "${sheetName}": coluna "DATA DA ENTRADA" não encontrada automaticamente.`);
+    warnings.push(`Aba "${sheetName}": coluna "DATA DE ENTRADA" não encontrada automaticamente.`);
   }
   if (!colMap.duration) {
     warnings.push(`Aba "${sheetName}": coluna "DURAÇÃO" não encontrada automaticamente.`);
@@ -605,8 +607,7 @@ function buildSampleRawSheets(): {
     const sDur = durSec % 60;
 
     voiceRows.push({
-      'HORARIO DE ENTRADA': `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
-      'DATA DA ENTRADA': dateObj.br,
+      'DATA DE ENTRADA': `${dateObj.br} ${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
       'DATA DO ENCERRAMENTO': dateObj.br,
       DURAÇÃO: `${pad2(hDur)}:${pad2(mDur)}:${pad2(sDur)}`,
       ATENDENTE: pick(voiceAgents),
@@ -633,8 +634,7 @@ function buildSampleRawSheets(): {
     const sDur = durSec % 60;
 
     chatRows.push({
-      'HORARIO DE ENTRADA': `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
-      'DATA DA ENTRADA': dateObj.br,
+      'DATA DE ENTRADA': `${dateObj.br} ${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
       'DATA DO ENCERRAMENTO': dateObj.br,
       DURAÇÃO: `${pad2(hDur)}:${pad2(mDur)}:${pad2(sDur)}`,
       ATENDENTE: pick(chatAgents),
@@ -712,8 +712,7 @@ export function exportRecordsWorkbook(records: AttendanceRecord[], fileName = 'r
   const voiceRecords = records
     .filter((r) => r.segment === 'voice')
     .map((r) => ({
-      'HORARIO DE ENTRADA': r.entryTimeFormatted,
-      'DATA DA ENTRADA': r.attendanceDateDisplay,
+      'DATA DE ENTRADA': `${r.attendanceDateDisplay} ${r.entryTimeFormatted}`,
       'DATA DO ENCERRAMENTO': r.closingDateDisplay,
       DURAÇÃO: r.durationFormatted,
       ATENDENTE: r.agent,
@@ -727,8 +726,7 @@ export function exportRecordsWorkbook(records: AttendanceRecord[], fileName = 'r
   const chatRecords = records
     .filter((r) => r.segment === 'chat')
     .map((r) => ({
-      'HORARIO DE ENTRADA': r.entryTimeFormatted,
-      'DATA DA ENTRADA': r.attendanceDateDisplay,
+      'DATA DE ENTRADA': `${r.attendanceDateDisplay} ${r.entryTimeFormatted}`,
       'DATA DO ENCERRAMENTO': r.closingDateDisplay,
       DURAÇÃO: r.durationFormatted,
       ATENDENTE: r.agent,

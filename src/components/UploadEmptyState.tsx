@@ -10,8 +10,7 @@ interface UploadEmptyStateProps {
 }
 
 const VOICE_COLUMNS = [
-  'HORARIO DE ENTRADA',
-  'DATA DA ENTRADA',
+  'DATA DE ENTRADA',
   'DATA DO ENCERRAMENTO',
   'DURAÇÃO',
   'ATENDENTE',
@@ -23,8 +22,7 @@ const VOICE_COLUMNS = [
 ];
 
 const CHAT_COLUMNS = [
-  'HORARIO DE ENTRADA',
-  'DATA DA ENTRADA',
+  'DATA DE ENTRADA',
   'DATA DO ENCERRAMENTO',
   'DURAÇÃO',
   'ATENDENTE',
