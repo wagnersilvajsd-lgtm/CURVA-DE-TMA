@@ -2,9 +2,13 @@ import type {
   AgentMetric,
   AttendanceRecord,
   CategoryMetric,
+  CriticalLoginWindow,
   DailyBucket,
   HourlyBucket,
+  HourlyImpactRow,
+  ImpactLevel,
   OperationalSummary,
+  SafeBreakWindow,
 } from '../types/operations';
 import {formatSecondsToClock} from './spreadsheet';
 
@@ -288,3 +292,258 @@ export function computeOperationalSummary(
     surveyTransferTotalVoice: voice.length,
   };
 }
+
+function pad2(n: number): string {
+  return String(Math.max(0, Math.floor(n))).padStart(2, '0');
+}
+
+export function computeHourlyImpactAndLoginPlan(
+  records: AttendanceRecord[],
+  hourlyBuckets: HourlyBucket[],
+): {
+  hourlyImpact: HourlyImpactRow[];
+  criticalWindows: CriticalLoginWindow[];
+  safeWindows: SafeBreakWindow[];
+} {
+  const distinctDays = new Set(records.map((r) => r.attendanceDate).filter((d) => d && d !== 'Sem data'));
+  const activeDaysCount = Math.max(1, distinctDays.size);
+
+  const grouped: AttendanceRecord[][] = Array.from({length: 24}, () => []);
+  for (const r of records) {
+    grouped[Math.min(23, Math.max(0, r.entryHour))].push(r);
+  }
+
+  // Compute daily workload (seconds/day) per hour to normalize pressure across hours
+  const workloadByHour = hourlyBuckets.map((b, h) => {
+    const recs = grouped[h];
+    const totalSec = recs.reduce((acc, r) => acc + r.durationSeconds, 0);
+    return totalSec / activeDaysCount;
+  });
+
+  const activeWorkloads = workloadByHour.filter((w) => w > 0);
+  const meanWorkload =
+    activeWorkloads.length > 0
+      ? activeWorkloads.reduce((a, b) => a + b, 0) / activeWorkloads.length
+      : 1;
+
+  // First pass: impact metrics & staffing
+  const prelim = hourlyBuckets.map((b, h) => {
+    const recs = grouped[h];
+    const workloadPerDay = workloadByHour[h];
+    const workloadRatio = b.totalCount > 0 && meanWorkload > 0 ? workloadPerDay / meanWorkload : 0;
+
+    // Observed distinct agents per active day in this hour
+    const agentsByDay = new Map<string, Set<string>>();
+    let voiceSec = 0;
+    let chatSec = 0;
+    for (const r of recs) {
+      const dayKey = r.attendanceDate || 'Sem data';
+      const set = agentsByDay.get(dayKey) ?? new Set<string>();
+      set.add(r.agent);
+      agentsByDay.set(dayKey, set);
+      if (r.segment === 'voice') voiceSec += r.durationSeconds;
+      else chatSec += r.durationSeconds;
+    }
+
+    const dayAgentCounts = Array.from(agentsByDay.values()).map((s) => s.size);
+    const observedAgentsAvg =
+      dayAgentCounts.length > 0
+        ? dayAgentCounts.reduce((a, c) => a + c, 0) / dayAgentCounts.length
+        : 0;
+
+    // Recommended logged-in agents: 85% occupancy (3060s/h), Voice 1:1, Chat 1.5 concurrency
+    const rawAgentsNeeded =
+      (voiceSec / activeDaysCount) / 3060 + (chatSec / activeDaysCount) / (3060 * 1.5);
+    const recommendedAgents =
+      b.totalCount === 0
+        ? 0
+        : Math.max(1, Math.ceil(rawAgentsNeeded + (rawAgentsNeeded >= 0.65 ? 0.35 : 0)));
+
+    const staffingGap = Math.max(0, recommendedAgents - Math.round(observedAgentsAvg));
+
+    let impactLevel: ImpactLevel = 'Sem Fluxo';
+    if (b.totalCount > 0) {
+      if (b.isPeak || workloadRatio >= 1.35) {
+        impactLevel = 'Crítico';
+      } else if (workloadRatio >= 1.05 || b.isTmaSpike) {
+        impactLevel = 'Alto';
+      } else if (workloadRatio >= 0.65) {
+        impactLevel = 'Moderado';
+      } else {
+        impactLevel = 'Baixo';
+      }
+    }
+
+    return {
+      bucket: b,
+      avgVolumePerDay: b.totalCount / activeDaysCount,
+      workloadRatio,
+      impactLevel,
+      observedAgentsAvg: Number(observedAgentsAvg.toFixed(1)),
+      recommendedAgents,
+      staffingGap,
+    };
+  });
+
+  // Second pass: determine critical login times and concrete action plans based on adjacent hours
+  const hourlyImpact: HourlyImpactRow[] = prelim.map((item, h) => {
+    const prev = h > 0 ? prelim[h - 1] : null;
+    const isHigh = item.impactLevel === 'Crítico' || item.impactLevel === 'Alto';
+    const prevWasHigh = prev !== null && (prev.impactLevel === 'Crítico' || prev.impactLevel === 'Alto');
+    const prevHourStr = pad2((h + 23) % 24);
+
+    let criticalLoginTime = '-';
+    let actionRecommendation = 'Sem atendimentos registrados nesta faixa.';
+
+    if (item.bucket.totalCount > 0) {
+      if (isHigh) {
+        if (!prevWasHigh) {
+          criticalLoginTime = `${prevHourStr}:30 – ${prevHourStr}:45`;
+          actionRecommendation =
+            item.staffingGap > 0
+              ? `Início de onda de impacto: antecipar login às ${prevHourStr}:30 com +${item.staffingGap} atendente(s) e bloquear pausas/reuniões.`
+              : `Início de onda de impacto: garantir equipe logada até ${prevHourStr}:45 para absorver a subida de fluxo sem fila.`;
+        } else {
+          criticalLoginTime =
+            item.staffingGap > 0
+              ? `${prevHourStr}:30 (reforço +${item.staffingGap})`
+              : `${prevHourStr}:45 (manter escala cheia)`;
+          actionRecommendation =
+            item.bucket.isTmaSpike
+              ? `Sustentação de pico com TMA elevado (${formatTma(item.bucket.tmaSeconds)}): manter escala cheia e acionar apoio de supervisão para destravar chamados longos.`
+              : `Sustentação de pico: manter 100% dos postos ativos e evitar trocas de turno ou pausas longas nesta hora.`;
+        }
+      } else if (item.impactLevel === 'Moderado') {
+        criticalLoginTime = 'Escala padrão';
+        actionRecommendation = item.bucket.isTmaSpike
+          ? `Fluxo moderado com TMA alto (${formatTma(item.bucket.tmaSeconds)}): revisar motivo de retenção na fila.`
+          : 'Fluxo equilibrado: janela viável para revezamento controlado de pausas rápidas.';
+      } else {
+        criticalLoginTime = 'Janela de baixa pressão';
+        actionRecommendation = 'Baixo impacto: horário recomendado para almoço escalonado, feedbacks, treinamentos e backoffice.';
+      }
+    }
+
+    return {
+      hour: h,
+      label: item.bucket.label,
+      rangeLabel: item.bucket.rangeLabel,
+      totalCount: item.bucket.totalCount,
+      voiceCount: item.bucket.voiceCount,
+      chatCount: item.bucket.chatCount,
+      avgVolumePerDay: Number(item.avgVolumePerDay.toFixed(1)),
+      sharePercent: item.bucket.sharePercent,
+      tmaSeconds: item.bucket.tmaSeconds,
+      voiceTmaSeconds: item.bucket.voiceTmaSeconds,
+      chatTmaSeconds: item.bucket.chatTmaSeconds,
+      workloadRatio: Number(item.workloadRatio.toFixed(2)),
+      impactLevel: item.impactLevel,
+      observedAgentsAvg: item.observedAgentsAvg,
+      recommendedAgents: item.recommendedAgents,
+      staffingGap: item.staffingGap,
+      criticalLoginTime,
+      actionRecommendation,
+    };
+  });
+
+  // Group contiguous Crítico/Alto hours into Critical Login Windows
+  const criticalWindows: CriticalLoginWindow[] = [];
+  let currentGroup: HourlyImpactRow[] = [];
+
+  const flushCriticalGroup = () => {
+    if (currentGroup.length === 0) return;
+    const startHour = currentGroup[0].hour;
+    const endHour = currentGroup[currentGroup.length - 1].hour;
+    const prevHourStr = pad2((startHour + 23) % 24);
+    const windowRecs = currentGroup.flatMap((g) => grouped[g.hour]);
+    const totalVolume = windowRecs.length;
+    const sharePercent = records.length > 0 ? (totalVolume / records.length) * 100 : 0;
+    const avgTmaSeconds = avgDuration(windowRecs);
+    const maxRequiredAgents = Math.max(...currentGroup.map((g) => g.recommendedAgents));
+    const avgObservedAgents =
+      currentGroup.reduce((s, g) => s + g.observedAgentsAvg, 0) / currentGroup.length;
+    const extraAgentsNeeded = Math.max(0, maxRequiredAgents - Math.round(avgObservedAgents));
+
+    const queueCount = new Map<string, number>();
+    for (const r of windowRecs) {
+      queueCount.set(r.queue, (queueCount.get(r.queue) ?? 0) + 1);
+    }
+    const topQueue =
+      Array.from(queueCount.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Geral';
+
+    const criticalLoginTime = `${prevHourStr}:30 – ${prevHourStr}:45`;
+    const windowLabel = `${pad2(startHour)}:00 – ${pad2(endHour)}:59`;
+
+    const solutionSummary =
+      extraAgentsNeeded > 0
+        ? `Programar entrada/login crítico entre ${criticalLoginTime} com mínimo de ${maxRequiredAgents} operador(es) (+${extraAgentsNeeded} sobre a média observada de ${avgObservedAgents.toFixed(1)}). Priorizar fila "${topQueue}" e suspender reuniões até ${pad2(endHour)}:59.`
+        : `Garantir 100% do login até ${prevHourStr}:45 (${maxRequiredAgents} operador(es) ativos) antes da abertura da janela ${windowLabel}. Direcionar foco inicial para a fila "${topQueue}".`;
+
+    criticalWindows.push({
+      windowLabel,
+      startHour,
+      endHour,
+      criticalLoginTime,
+      totalVolume,
+      sharePercent,
+      avgTmaSeconds,
+      maxRequiredAgents,
+      avgObservedAgents: Number(avgObservedAgents.toFixed(1)),
+      extraAgentsNeeded,
+      topQueue,
+      solutionSummary,
+    });
+    currentGroup = [];
+  };
+
+  for (const row of hourlyImpact) {
+    if (row.impactLevel === 'Crítico' || row.impactLevel === 'Alto') {
+      currentGroup.push(row);
+    } else {
+      flushCriticalGroup();
+    }
+  }
+  flushCriticalGroup();
+
+  // Group contiguous active Baixo/Moderado hours into Safe Break Windows
+  const safeWindows: SafeBreakWindow[] = [];
+  let safeGroup: HourlyImpactRow[] = [];
+
+  const flushSafeGroup = () => {
+    if (safeGroup.length === 0) return;
+    const startHour = safeGroup[0].hour;
+    const endHour = safeGroup[safeGroup.length - 1].hour;
+    const windowRecs = safeGroup.flatMap((g) => grouped[g.hour]);
+    const totalVolume = windowRecs.length;
+    const sharePercent = records.length > 0 ? (totalVolume / records.length) * 100 : 0;
+    const avgTmaSeconds = avgDuration(windowRecs);
+    const hasOnlyLow = safeGroup.every((g) => g.impactLevel === 'Baixo');
+
+    safeWindows.push({
+      windowLabel: `${pad2(startHour)}:00 – ${pad2(endHour)}:59`,
+      totalVolume,
+      sharePercent,
+      avgTmaSeconds,
+      guidance: hasOnlyLow
+        ? 'Janela ideal para almoço escalonado, pausas NR-17, treinamentos e feedbacks.'
+        : 'Fluxo moderado: permite revezamento parcial de pausas sem impactar o SLA.',
+    });
+    safeGroup = [];
+  };
+
+  for (const row of hourlyImpact) {
+    if (row.totalCount > 0 && (row.impactLevel === 'Baixo' || row.impactLevel === 'Moderado')) {
+      safeGroup.push(row);
+    } else {
+      flushSafeGroup();
+    }
+  }
+  flushSafeGroup();
+
+  return {
+    hourlyImpact,
+    criticalWindows,
+    safeWindows: safeWindows.sort((a, b) => a.sharePercent - b.sharePercent),
+  };
+}
+

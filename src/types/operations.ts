@@ -111,3 +111,50 @@ export interface OperationalSummary {
   surveyTransferYesCount: number;
   surveyTransferTotalVoice: number;
 }
+
+export type ImpactLevel = 'Crítico' | 'Alto' | 'Moderado' | 'Baixo' | 'Sem Fluxo';
+
+export interface HourlyImpactRow {
+  hour: number;
+  label: string;
+  rangeLabel: string;
+  totalCount: number;
+  voiceCount: number;
+  chatCount: number;
+  avgVolumePerDay: number;
+  sharePercent: number;
+  tmaSeconds: number;
+  voiceTmaSeconds: number;
+  chatTmaSeconds: number;
+  workloadRatio: number;
+  impactLevel: ImpactLevel;
+  observedAgentsAvg: number;
+  recommendedAgents: number;
+  staffingGap: number;
+  criticalLoginTime: string;
+  actionRecommendation: string;
+}
+
+export interface CriticalLoginWindow {
+  windowLabel: string;
+  startHour: number;
+  endHour: number;
+  criticalLoginTime: string;
+  totalVolume: number;
+  sharePercent: number;
+  avgTmaSeconds: number;
+  maxRequiredAgents: number;
+  avgObservedAgents: number;
+  extraAgentsNeeded: number;
+  topQueue: string;
+  solutionSummary: string;
+}
+
+export interface SafeBreakWindow {
+  windowLabel: string;
+  totalVolume: number;
+  sharePercent: number;
+  avgTmaSeconds: number;
+  guidance: string;
+}
+

@@ -22,9 +22,11 @@ import {
   computeCategoryBreakdown,
   computeDailyCurve,
   computeHourlyCurve,
+  computeHourlyImpactAndLoginPlan,
   computeOperationalSummary,
   formatTma,
 } from './utils/analytics';
+import {exportAnalyticalReportWorkbook} from './utils/reportExport';
 import {
   downloadTemplateWorkbook,
   generateSampleWorkbookResult,
@@ -189,6 +191,64 @@ export default function App() {
     [scopedRecords, hourlyBuckets, agentMetrics],
   );
 
+  const impactAnalysis = useMemo(
+    () => computeHourlyImpactAndLoginPlan(baseFilteredRecords, hourlyBuckets),
+    [baseFilteredRecords, hourlyBuckets],
+  );
+
+  const impactByHour = useMemo(() => {
+    const map = new Map<number, (typeof impactAnalysis.hourlyImpact)[number]>();
+    for (const row of impactAnalysis.hourlyImpact) {
+      map.set(row.hour, row);
+    }
+    return map;
+  }, [impactAnalysis]);
+
+  const handleExportFullReport = () => {
+    if (!workbook) return;
+    const filterParts: string[] = [];
+    if (selectedDate !== 'all') {
+      const dLabel = filterOptions.dates.find((d) => d.iso === selectedDate)?.display ?? selectedDate;
+      filterParts.push(`Dia: ${dLabel}`);
+    } else if (dateStart || dateEnd) {
+      filterParts.push(`Período: ${dateStart || 'início'} até ${dateEnd || 'fim'}`);
+    } else {
+      filterParts.push('Todas as datas');
+    }
+    if (selectedQueue !== 'all') filterParts.push(`Fila: ${selectedQueue}`);
+    if (selectedChatbot !== 'all') filterParts.push(`Chatbot: ${selectedChatbot}`);
+    if (selectedHour !== null) {
+      filterParts.push(`Hora selecionada: ${String(selectedHour).padStart(2, '0')}h`);
+    }
+
+    // Use full baseFilteredRecords for hourly/daily curves & login plan, and scopedRecords for summary/agents/channels
+    const fullSummary =
+      selectedHour === null
+        ? summary
+        : computeOperationalSummary(
+            baseFilteredRecords,
+            hourlyBuckets,
+            computeAgentMetrics(baseFilteredRecords),
+          );
+
+    exportAnalyticalReportWorkbook({
+      sourceFileName: workbook.fileName,
+      segmentFilter,
+      filterDescription: filterParts.join(' | '),
+      records: scopedRecords,
+      summary: selectedHour === null ? summary : fullSummary,
+      hourlyImpact: impactAnalysis.hourlyImpact,
+      criticalWindows: impactAnalysis.criticalWindows,
+      safeWindows: impactAnalysis.safeWindows,
+      dailyBuckets,
+      agentMetrics,
+      queueMetrics,
+      chatbotMetrics,
+      disconnectMetrics,
+      surveyMetrics,
+    });
+  };
+
   const hasActiveFilters =
     segmentFilter !== 'all' ||
     selectedDate !== 'all' ||
@@ -334,14 +394,25 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={downloadTemplateWorkbook}
-              className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Baixar Modelo</span>
-            </button>
+            {workbook ? (
+              <button
+                type="button"
+                onClick={handleExportFullReport}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5 text-blue-700" />
+                <span>Relatório Completo (.xlsx)</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={downloadTemplateWorkbook}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Baixar Modelo</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -606,16 +677,26 @@ export default function App() {
                       onSelectHour={setSelectedHour}
                     />
 
-                    {/* Actionable Peak Hours Panel */}
+                    {/* Actionable Peak Hours & Critical Login Panel */}
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
                       <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 lg:col-span-7">
-                        <div className="border-b border-slate-200 pb-3">
-                          <h2 className="font-display text-base font-semibold text-slate-900">
-                            Janelas Críticas de Pico para Atuação
-                          </h2>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            Horários de maior pressão operacional para reforço de escala e controle de TMA
-                          </p>
+                        <div className="flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <h2 className="font-display text-base font-semibold text-slate-900">
+                              Janelas Críticas de Pico e Logins
+                            </h2>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              Horários de maior impacto, dimensionamento necessário e horário crítico de login
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleExportFullReport}
+                            className="inline-flex items-center gap-1.5 self-start rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100 whitespace-nowrap shrink-0 cursor-pointer"
+                          >
+                            <Download className="h-3.5 w-3.5 text-blue-700" />
+                            <span>Baixar Relatório (.xlsx)</span>
+                          </button>
                         </div>
 
                         {summary.peakHours.length === 0 ? (
@@ -628,46 +709,77 @@ export default function App() {
                               <thead>
                                 <tr className="border-b border-slate-200 text-[11px] font-semibold text-slate-500">
                                   <th className="py-2.5 pr-3">Faixa Horária</th>
-                                  <th className="py-2.5 px-3 text-right">Volume</th>
-                                  <th className="py-2.5 px-3 text-right">% do Dia</th>
-                                  <th className="py-2.5 px-3 text-right">TMA Horário</th>
-                                  <th className="py-2.5 pl-3 text-right">Ação</th>
+                                  <th className="py-2.5 px-2 text-right">Volume</th>
+                                  <th className="py-2.5 px-2 text-right">TMA</th>
+                                  <th className="py-2.5 px-2 text-right">Escala Rec.</th>
+                                  <th className="py-2.5 px-2">Login Crítico</th>
+                                  <th className="py-2.5 pl-2 text-right">Ação</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 tabular-nums">
-                                {summary.peakHours.map((pk, idx) => (
-                                  <tr key={pk.hour} className="h-11">
-                                    <td className="py-2 pr-3 font-mono font-semibold text-slate-900">
-                                      {idx + 1}. {pk.rangeLabel}
-                                    </td>
-                                    <td className="py-2 px-3 text-right font-mono text-slate-800">
-                                      {pk.totalCount} ({pk.voiceCount}V / {pk.chatCount}C)
-                                    </td>
-                                    <td className="py-2 px-3 text-right font-mono text-blue-700 font-medium">
-                                      {pk.sharePercent.toFixed(1)}%
-                                    </td>
-                                    <td
-                                      className={`py-2 px-3 text-right font-mono font-semibold ${
-                                        pk.isTmaSpike ? 'text-red-700' : 'text-amber-700'
-                                      }`}
-                                    >
-                                      {formatTma(pk.tmaSeconds)}
-                                    </td>
-                                    <td className="py-2 pl-3 text-right">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectedHour(selectedHour === pk.hour ? null : pk.hour)
-                                        }
-                                        className="font-medium text-blue-700 hover:underline cursor-pointer whitespace-nowrap"
+                                {summary.peakHours.map((pk, idx) => {
+                                  const impact = impactByHour.get(pk.hour);
+                                  return (
+                                    <tr key={pk.hour} className="h-11">
+                                      <td className="py-2 pr-3 font-mono font-semibold text-slate-900 whitespace-nowrap">
+                                        {idx + 1}. {pk.rangeLabel}
+                                      </td>
+                                      <td className="py-2 px-2 text-right font-mono text-slate-800 whitespace-nowrap">
+                                        {pk.totalCount} ({pk.sharePercent.toFixed(1)}%)
+                                      </td>
+                                      <td
+                                        className={`py-2 px-2 text-right font-mono font-semibold whitespace-nowrap ${
+                                          pk.isTmaSpike ? 'text-red-700' : 'text-amber-700'
+                                        }`}
                                       >
-                                        {selectedHour === pk.hour ? 'Remover filtro' : 'Filtrar hora'}
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
+                                        {formatTma(pk.tmaSeconds)}
+                                      </td>
+                                      <td className="py-2 px-2 text-right font-mono text-slate-700 whitespace-nowrap">
+                                        {impact
+                                          ? `${impact.recommendedAgents} rec. (${impact.observedAgentsAvg} obs.)`
+                                          : '-'}
+                                      </td>
+                                      <td className="py-2 px-2 font-mono font-semibold text-blue-700 whitespace-nowrap">
+                                        {impact?.criticalLoginTime ?? '-'}
+                                      </td>
+                                      <td className="py-2 pl-2 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setSelectedHour(selectedHour === pk.hour ? null : pk.hour)
+                                          }
+                                          className="font-medium text-blue-700 hover:underline cursor-pointer whitespace-nowrap"
+                                        >
+                                          {selectedHour === pk.hour ? 'Remover' : 'Filtrar'}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
+                          </div>
+                        )}
+
+                        {impactAnalysis.criticalWindows.length > 0 && (
+                          <div className="mt-4 border-t border-slate-200 pt-3">
+                            <p className="text-xs font-semibold text-slate-800">
+                              Solução sugerida por onda de pico
+                            </p>
+                            <ul className="mt-2 space-y-2 text-xs text-slate-600">
+                              {impactAnalysis.criticalWindows.slice(0, 3).map((w) => (
+                                <li key={w.windowLabel} className="leading-relaxed">
+                                  <span className="font-mono font-semibold text-slate-900">
+                                    {w.windowLabel}
+                                  </span>{' '}
+                                  · Login crítico:{' '}
+                                  <span className="font-mono font-semibold text-blue-700">
+                                    {w.criticalLoginTime}
+                                  </span>{' '}
+                                  — {w.solutionSummary}
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                       </div>
@@ -701,6 +813,12 @@ export default function App() {
                               {summary.highestTmaHour
                                 ? `${summary.highestTmaHour.rangeLabel} (${formatTma(summary.highestTmaHour.tmaSeconds)})`
                                 : '--'}
+                            </dd>
+                          </div>
+                          <div className="flex items-center justify-between py-2.5">
+                            <dt className="text-slate-600">Janela segura p/ pausas</dt>
+                            <dd className="font-mono font-semibold text-teal-700">
+                              {impactAnalysis.safeWindows[0]?.windowLabel ?? '--'}
                             </dd>
                           </div>
                           <div className="flex items-center justify-between py-2.5">

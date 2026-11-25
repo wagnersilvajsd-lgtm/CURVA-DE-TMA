@@ -13,19 +13,23 @@ function normalizeHeader(value: unknown): string {
 const COLUMN_ALIASES = {
   entryTime: [
     'horario de entrada',
+    'horario da entrada',
     'hora de entrada',
+    'hora da entrada',
     'horario entrada',
     'hora entrada',
-    'entrada',
     'horario',
     'hora',
     'inicio',
   ],
   attendanceDate: [
-    'data do atendimento',
-    'data atendimento',
+    'data da entrada',
     'data de entrada',
     'data entrada',
+    'data do atendimento',
+    'data atendimento',
+    'data contato',
+    'data do contato',
     'data',
   ],
   closingDate: [
@@ -87,25 +91,44 @@ type ColumnKey = keyof typeof COLUMN_ALIASES;
 
 function buildHeaderMap(headers: string[]): Partial<Record<ColumnKey, string>> {
   const map: Partial<Record<ColumnKey, string>> = {};
+  const usedRawHeaders = new Set<string>();
   const normalizedHeaders = headers.map((h) => ({raw: h, norm: normalizeHeader(h)}));
+
+  const isAllowedForKey = (key: ColumnKey, norm: string): boolean => {
+    if (key === 'entryTime' && norm.startsWith('data')) return false;
+    if (
+      key === 'attendanceDate' &&
+      (norm.includes('encerramento') || norm.includes('fim') || norm.includes('final'))
+    ) {
+      return false;
+    }
+    return true;
+  };
 
   (Object.keys(COLUMN_ALIASES) as ColumnKey[]).forEach((key) => {
     const aliases = COLUMN_ALIASES[key];
     // Exact normalized match first
     for (const alias of aliases) {
-      const found = normalizedHeaders.find((h) => h.norm === alias);
+      const found = normalizedHeaders.find(
+        (h) => !usedRawHeaders.has(h.raw) && h.norm === alias && isAllowedForKey(key, h.norm),
+      );
       if (found) {
         map[key] = found.raw;
+        usedRawHeaders.add(found.raw);
         return;
       }
     }
     // Partial substring match second
     for (const alias of aliases) {
       const found = normalizedHeaders.find(
-        (h) => h.norm.includes(alias) || (alias.length >= 5 && alias.includes(h.norm) && h.norm.length >= 4),
+        (h) =>
+          !usedRawHeaders.has(h.raw) &&
+          isAllowedForKey(key, h.norm) &&
+          (h.norm.includes(alias) || (alias.length >= 5 && alias.includes(h.norm) && h.norm.length >= 4)),
       );
       if (found) {
         map[key] = found.raw;
+        usedRawHeaders.add(found.raw);
         return;
       }
     }
@@ -317,6 +340,9 @@ function parseSheetRows(
   if (!colMap.entryTime) {
     warnings.push(`Aba "${sheetName}": coluna "HORARIO DE ENTRADA" não encontrada automaticamente.`);
   }
+  if (!colMap.attendanceDate) {
+    warnings.push(`Aba "${sheetName}": coluna "DATA DA ENTRADA" não encontrada automaticamente.`);
+  }
   if (!colMap.duration) {
     warnings.push(`Aba "${sheetName}": coluna "DURAÇÃO" não encontrada automaticamente.`);
   }
@@ -356,10 +382,13 @@ function parseSheetRows(
 
     if (!hasAnyContent) continue;
 
-    // Parse time (prefer raw if numeric serial, else formatted)
+    // Parse time (prefer raw if numeric serial, else formatted, then fallback to DATA DA ENTRADA if datetime)
     const parsedTime =
       (typeof entryTimeVal.raw === 'number' ? parseTimeOfDay(entryTimeVal.raw) : null) ??
       parseTimeOfDay(entryTimeVal.fmt) ??
+      (typeof attDateVal.raw === 'number' && attDateVal.raw % 1 !== 0
+        ? parseTimeOfDay(attDateVal.raw)
+        : null) ??
       parseTimeOfDay(attDateVal.fmt) ??
       {hour: 0, minute: 0, second: 0, formatted: '00:00:00'};
 
@@ -577,7 +606,7 @@ function buildSampleRawSheets(): {
 
     voiceRows.push({
       'HORARIO DE ENTRADA': `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
-      'DATA DO ATENDIMENTO': dateObj.br,
+      'DATA DA ENTRADA': dateObj.br,
       'DATA DO ENCERRAMENTO': dateObj.br,
       DURAÇÃO: `${pad2(hDur)}:${pad2(mDur)}:${pad2(sDur)}`,
       ATENDENTE: pick(voiceAgents),
@@ -605,7 +634,7 @@ function buildSampleRawSheets(): {
 
     chatRows.push({
       'HORARIO DE ENTRADA': `${pad2(hour)}:${pad2(min)}:${pad2(sec)}`,
-      'DATA DO ATENDIMENTO': dateObj.br,
+      'DATA DA ENTRADA': dateObj.br,
       'DATA DO ENCERRAMENTO': dateObj.br,
       DURAÇÃO: `${pad2(hDur)}:${pad2(mDur)}:${pad2(sDur)}`,
       ATENDENTE: pick(chatAgents),
@@ -684,7 +713,7 @@ export function exportRecordsWorkbook(records: AttendanceRecord[], fileName = 'r
     .filter((r) => r.segment === 'voice')
     .map((r) => ({
       'HORARIO DE ENTRADA': r.entryTimeFormatted,
-      'DATA DO ATENDIMENTO': r.attendanceDateDisplay,
+      'DATA DA ENTRADA': r.attendanceDateDisplay,
       'DATA DO ENCERRAMENTO': r.closingDateDisplay,
       DURAÇÃO: r.durationFormatted,
       ATENDENTE: r.agent,
@@ -699,7 +728,7 @@ export function exportRecordsWorkbook(records: AttendanceRecord[], fileName = 'r
     .filter((r) => r.segment === 'chat')
     .map((r) => ({
       'HORARIO DE ENTRADA': r.entryTimeFormatted,
-      'DATA DO ATENDIMENTO': r.attendanceDateDisplay,
+      'DATA DA ENTRADA': r.attendanceDateDisplay,
       'DATA DO ENCERRAMENTO': r.closingDateDisplay,
       DURAÇÃO: r.durationFormatted,
       ATENDENTE: r.agent,
