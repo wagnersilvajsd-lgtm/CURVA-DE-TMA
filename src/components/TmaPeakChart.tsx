@@ -90,9 +90,10 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
     }));
   }, [chartMode, hourlyBuckets, dailyBuckets, overallTmaSeconds]);
 
+  const isDaily = chartMode === 'daily';
   const width = 960;
-  const height = 340;
-  const pad = {top: 28, right: 64, bottom: 42, left: 52};
+  const height = isDaily ? 368 : 340;
+  const pad = {top: 28, right: 64, bottom: isDaily ? 70 : 42, left: 52};
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
@@ -400,23 +401,37 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
                 )}
 
                 {/* X-Axis Label */}
-                <text
-                  x={centerX}
-                  y={height - 16}
-                  textAnchor="middle"
-                  className={`font-mono text-[11px] tabular-nums ${
-                    isSelected ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
-                  }`}
-                >
-                  {item.label}
-                </text>
+                {isDaily ? (
+                  <text
+                    x={centerX + 3}
+                    y={pad.top + plotH + 14}
+                    textAnchor="end"
+                    transform={`rotate(-45 ${centerX + 3} ${pad.top + plotH + 14})`}
+                    className={`font-mono ${items.length > 24 ? 'text-[10px]' : 'text-[11px]'} tabular-nums ${
+                      isHovered ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
+                    }`}
+                  >
+                    {item.label}
+                  </text>
+                ) : (
+                  <text
+                    x={centerX}
+                    y={height - 16}
+                    textAnchor="middle"
+                    className={`font-mono text-[11px] tabular-nums ${
+                      isSelected || isHovered ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
+                    }`}
+                  >
+                    {item.label}
+                  </text>
+                )}
 
                 {/* Invisible full-column hit target */}
                 <rect
                   x={pad.left + idx * slotW}
                   y={pad.top}
                   width={slotW}
-                  height={plotH + 28}
+                  height={plotH + pad.bottom - 4}
                   fill="transparent"
                 />
               </g>
