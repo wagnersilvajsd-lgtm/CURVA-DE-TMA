@@ -1,6 +1,7 @@
 import React, {useMemo, useRef, useState} from 'react';
 import {
   BarChart3,
+  Clock,
   Download,
   FileSpreadsheet,
   Layers,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import {AgentAverageChart} from './components/AgentAverageChart';
 import {ChannelQueueBreakdown} from './components/ChannelQueueBreakdown';
+import {OperatorTmaView} from './components/OperatorTmaView';
 import {RecordsTable} from './components/RecordsTable';
 import {TmaPeakChart} from './components/TmaPeakChart';
 import {UploadEmptyState} from './components/UploadEmptyState';
@@ -36,6 +38,7 @@ import {
 const NAV_ITEMS: {id: ActiveView; label: string; icon: React.ComponentType<{className?: string}>}[] = [
   {id: 'overview', label: 'Picos e Curva TMA', icon: BarChart3},
   {id: 'agents', label: 'Visão por Atendente', icon: Users},
+  {id: 'operator-tma', label: 'TMA por Operador', icon: Clock},
   {id: 'channels', label: 'Filas e Canais', icon: Layers},
   {id: 'records', label: 'Registros da Planilha', icon: Table2},
 ];
@@ -58,6 +61,7 @@ export default function App() {
   const [selectedChatbot, setSelectedChatbot] = useState<string>('all');
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [selectedOperatorTma, setSelectedOperatorTma] = useState<string>('all');
 
   const resetFilters = () => {
     setSegmentFilter('all');
@@ -68,6 +72,7 @@ export default function App() {
     setSelectedChatbot('all');
     setSelectedHour(null);
     setSelectedAgent(null);
+    setSelectedOperatorTma('all');
   };
 
   const handleFileUpload = async (file: File) => {
@@ -105,11 +110,12 @@ export default function App() {
 
   // Available filter options from loaded workbook
   const filterOptions = useMemo(() => {
-    if (!workbook) return {dates: [], queues: [], chatbots: []};
+    if (!workbook) return {dates: [], queues: [], chatbots: [], agents: []};
 
     const dateMap = new Map<string, string>();
     const queuesSet = new Set<string>();
     const chatbotsSet = new Set<string>();
+    const agentsSet = new Set<string>();
 
     for (const r of workbook.records) {
       if (r.attendanceDate && r.attendanceDate !== 'Sem data') {
@@ -117,6 +123,7 @@ export default function App() {
       }
       if (r.queue) queuesSet.add(r.queue);
       if (r.segment === 'chat' && r.chatbotSource) chatbotsSet.add(r.chatbotSource);
+      if (r.agent) agentsSet.add(r.agent);
     }
 
     const dates = Array.from(dateMap.entries())
@@ -125,10 +132,9 @@ export default function App() {
 
     return {
       dates,
-      minDate: dates[0]?.iso ?? '',
-      maxDate: dates[dates.length - 1]?.iso ?? '',
       queues: Array.from(queuesSet).sort((a, b) => a.localeCompare(b)),
       chatbots: Array.from(chatbotsSet).sort((a, b) => a.localeCompare(b)),
+      agents: Array.from(agentsSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
     };
   }, [workbook]);
 
@@ -256,7 +262,8 @@ export default function App() {
     dateEnd !== '' ||
     selectedQueue !== 'all' ||
     selectedChatbot !== 'all' ||
-    selectedHour !== null;
+    selectedHour !== null ||
+    selectedOperatorTma !== 'all';
 
   const activeNavLabel = NAV_ITEMS.find((n) => n.id === activeView)?.label ?? 'Painel';
 
@@ -519,20 +526,22 @@ export default function App() {
                       ))}
                     </select>
 
-                    {/* Date Range Filter (Período de Data) */}
+                    {/* Date Range Filter (Período de Data - Full Year Unlocked) */}
                     <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
                       <span className="font-medium text-slate-500 whitespace-nowrap">Período</span>
                       <input
                         type="date"
                         aria-label="Data inicial do período"
                         value={dateStart}
-                        min={filterOptions.minDate || undefined}
-                        max={dateEnd || filterOptions.maxDate || undefined}
                         onChange={(e) => {
-                          setDateStart(e.target.value);
-                          if (e.target.value) setSelectedDate('all');
+                          const val = e.target.value;
+                          setDateStart(val);
+                          if (val) {
+                            setSelectedDate('all');
+                            if (dateEnd && val > dateEnd) setDateEnd('');
+                          }
                         }}
-                        className="bg-transparent font-mono text-[11px] font-medium text-slate-700 tabular-nums focus:outline-none"
+                        className="bg-transparent font-mono text-[11px] font-medium text-slate-700 tabular-nums focus:outline-none cursor-pointer"
                       />
                       <span className="text-slate-400" aria-hidden="true">
                         até
@@ -541,13 +550,15 @@ export default function App() {
                         type="date"
                         aria-label="Data final do período"
                         value={dateEnd}
-                        min={dateStart || filterOptions.minDate || undefined}
-                        max={filterOptions.maxDate || undefined}
                         onChange={(e) => {
-                          setDateEnd(e.target.value);
-                          if (e.target.value) setSelectedDate('all');
+                          const val = e.target.value;
+                          setDateEnd(val);
+                          if (val) {
+                            setSelectedDate('all');
+                            if (dateStart && val < dateStart) setDateStart('');
+                          }
                         }}
-                        className="bg-transparent font-mono text-[11px] font-medium text-slate-700 tabular-nums focus:outline-none"
+                        className="bg-transparent font-mono text-[11px] font-medium text-slate-700 tabular-nums focus:outline-none cursor-pointer"
                       />
                     </div>
 
@@ -866,6 +877,39 @@ export default function App() {
                     overallTmaSeconds={summary.overallTmaSeconds}
                     selectedAgent={selectedAgent}
                     onSelectAgent={setSelectedAgent}
+                  />
+                )}
+
+                {/* VIEW 2B: TMA BY OPERATOR WITH OPERATOR + PERIOD FILTERS */}
+                {activeView === 'operator-tma' && (
+                  <OperatorTmaView
+                    records={scopedRecords}
+                    segmentFilter={segmentFilter}
+                    availableOperators={filterOptions.agents}
+                    selectedOperator={selectedOperatorTma}
+                    onSelectOperator={setSelectedOperatorTma}
+                    dateStart={dateStart}
+                    dateEnd={dateEnd}
+                    selectedDate={selectedDate}
+                    onChangeDateStart={(val) => {
+                      setDateStart(val);
+                      if (val) {
+                        setSelectedDate('all');
+                        if (dateEnd && val > dateEnd) setDateEnd('');
+                      }
+                    }}
+                    onChangeDateEnd={(val) => {
+                      setDateEnd(val);
+                      if (val) {
+                        setSelectedDate('all');
+                        if (dateStart && val < dateStart) setDateStart('');
+                      }
+                    }}
+                    onClearPeriod={() => {
+                      setSelectedDate('all');
+                      setDateStart('');
+                      setDateEnd('');
+                    }}
                   />
                 )}
 

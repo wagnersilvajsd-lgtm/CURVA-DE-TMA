@@ -1,6 +1,6 @@
 export type Segment = 'voice' | 'chat';
 export type SegmentFilter = 'all' | 'voice' | 'chat';
-export type ActiveView = 'overview' | 'agents' | 'channels' | 'records';
+export type ActiveView = 'overview' | 'agents' | 'operator-tma' | 'channels' | 'records';
 
 export interface AttendanceRecord {
   id: string;
