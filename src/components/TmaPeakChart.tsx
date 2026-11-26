@@ -9,6 +9,7 @@ interface TmaPeakChartProps {
   overallTmaSeconds: number;
   selectedHour: number | null;
   onSelectHour: (hour: number | null) => void;
+  hideSplitToggle?: boolean;
 }
 
 type ChartMode = 'hourly' | 'daily';
@@ -42,10 +43,12 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
   overallTmaSeconds,
   selectedHour,
   onSelectHour,
+  hideSplitToggle = false,
 }) => {
   const [chartMode, setChartMode] = useState<ChartMode>('hourly');
   const [splitChannels, setSplitChannels] = useState<boolean>(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const effectiveSplit = !hideSplitToggle && splitChannels;
 
   const items = useMemo(() => {
     if (chartMode === 'hourly') {
@@ -155,7 +158,7 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {segmentFilter === 'all' && (
+          {segmentFilter === 'all' && !hideSplitToggle && (
             <button
               type="button"
               onClick={() => setSplitChannels((s) => !s)}
@@ -202,7 +205,7 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
       {/* Legend Bar (Clean inline typographic markers) */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
         <div className="flex flex-wrap items-center gap-5">
-          {segmentFilter === 'all' && splitChannels ? (
+          {segmentFilter === 'all' && effectiveSplit ? (
             <>
               <span className="inline-flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-xs bg-blue-400" aria-hidden="true" />
@@ -322,7 +325,7 @@ export const TmaPeakChart: React.FC<TmaPeakChartProps> = ({
             const totalH = plotH - (yVol(item.totalCount) - pad.top);
             const barY = yVol(item.totalCount);
 
-            const showSplit = segmentFilter === 'all' && splitChannels;
+            const showSplit = segmentFilter === 'all' && effectiveSplit;
             const voiceH = item.totalCount > 0 ? (item.voiceCount / item.totalCount) * totalH : 0;
             const chatH = totalH - voiceH;
 

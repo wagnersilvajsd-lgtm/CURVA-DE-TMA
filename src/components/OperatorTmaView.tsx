@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import {RotateCcw, Search, UserCheck} from 'lucide-react';
+import {MessageSquare, Phone, RotateCcw, Search, UserCheck} from 'lucide-react';
 import type {AttendanceRecord, SegmentFilter} from '../types/operations';
 import {
   computeAgentMetrics,
@@ -39,22 +39,52 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
   onChangeDateEnd,
   onClearPeriod,
 }) => {
+  const [channelTab, setChannelTab] = useState<SegmentFilter>('all');
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('tmaDesc');
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
 
-  const allAgents = useMemo(() => computeAgentMetrics(records), [records]);
+  // If the top global segment switcher is locked to voice or chat, honor it; otherwise use the local channel tab
+  const effectiveChannel: SegmentFilter = segmentFilter !== 'all' ? segmentFilter : channelTab;
 
-  const teamOverallTma = useMemo(() => {
-    if (records.length === 0) return 0;
-    const total = records.reduce((s, r) => s + r.durationSeconds, 0);
-    return Math.round(total / records.length);
-  }, [records]);
-
-  const operatorRecords = useMemo(() => {
+  // Records scoped by selected operator (before channel split) so tab counts show exactly how many Voice vs Chat they handled
+  const operatorBaseRecords = useMemo(() => {
     if (selectedOperator === 'all') return records;
     return records.filter((r) => r.agent === selectedOperator);
   }, [records, selectedOperator]);
+
+  const channelCounts = useMemo(() => {
+    let voice = 0;
+    let chat = 0;
+    for (const r of operatorBaseRecords) {
+      if (r.segment === 'voice') voice++;
+      else chat++;
+    }
+    return {
+      all: operatorBaseRecords.length,
+      voice,
+      chat,
+    };
+  }, [operatorBaseRecords]);
+
+  // All records filtered by active channel tab (used for team average and all-operators ranking)
+  const channelRecords = useMemo(() => {
+    if (effectiveChannel === 'all') return records;
+    return records.filter((r) => r.segment === effectiveChannel);
+  }, [records, effectiveChannel]);
+
+  const allAgents = useMemo(() => computeAgentMetrics(channelRecords), [channelRecords]);
+
+  const teamOverallTma = useMemo(() => {
+    if (channelRecords.length === 0) return 0;
+    const total = channelRecords.reduce((s, r) => s + r.durationSeconds, 0);
+    return Math.round(total / channelRecords.length);
+  }, [channelRecords]);
+
+  const operatorRecords = useMemo(() => {
+    if (selectedOperator === 'all') return channelRecords;
+    return channelRecords.filter((r) => r.agent === selectedOperator);
+  }, [channelRecords, selectedOperator]);
 
   const operatorHourlyFiltered = useMemo(() => {
     if (selectedHour === null) return operatorRecords;
@@ -84,7 +114,6 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
 
   const teamTmaRefPct = Math.min(98, Math.max(2, (teamOverallTma / maxTmaScale) * 100));
 
-  // Curves & breakdowns for selected operator (or filtered set)
   const opHourlyBuckets = useMemo(() => computeHourlyCurve(operatorRecords), [operatorRecords]);
   const opDailyBuckets = useMemo(() => computeDailyCurve(operatorRecords), [operatorRecords]);
   const opQueues = useMemo(
@@ -93,6 +122,22 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
   );
   const opDisconnects = useMemo(
     () => computeCategoryBreakdown(operatorHourlyFiltered, (r) => r.disconnectReason),
+    [operatorHourlyFiltered],
+  );
+  const opChatbots = useMemo(
+    () =>
+      computeCategoryBreakdown(
+        operatorHourlyFiltered.filter((r) => r.segment === 'chat'),
+        (r) => r.chatbotSource ?? 'Não informado',
+      ),
+    [operatorHourlyFiltered],
+  );
+  const opSurveys = useMemo(
+    () =>
+      computeCategoryBreakdown(
+        operatorHourlyFiltered.filter((r) => r.segment === 'voice'),
+        (r) => r.surveyTransfer ?? 'Não informado',
+      ),
     [operatorHourlyFiltered],
   );
 
@@ -125,6 +170,9 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
     [allAgents],
   );
 
+  const channelLabel =
+    effectiveChannel === 'voice' ? 'Voice' : effectiveChannel === 'chat' ? 'Chat' : 'Consolidado';
+
   return (
     <div className="space-y-6">
       {/* Dedicated Filter Bar: Operador + Período */}
@@ -135,7 +183,7 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
               TMA por Operador
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Filtre por operador e período para analisar o TMA individual, evolução diária e filas atendidas
+              Filtre por operador, período e alterne entre as abas Voice e Chat para visualizar o que foi atendido em cada canal
             </p>
           </div>
 
@@ -190,12 +238,17 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
               </div>
             </div>
 
-            {(selectedOperator !== 'all' || dateStart !== '' || dateEnd !== '' || selectedDate !== 'all') && (
+            {(selectedOperator !== 'all' ||
+              dateStart !== '' ||
+              dateEnd !== '' ||
+              selectedDate !== 'all' ||
+              channelTab !== 'all') && (
               <button
                 type="button"
                 onClick={() => {
                   onSelectOperator('all');
                   onClearPeriod();
+                  setChannelTab('all');
                   setSelectedHour(null);
                 }}
                 className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap"
@@ -206,35 +259,125 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
             )}
           </div>
         </div>
+
+        {/* Separate Channel Tabs (Voice | Chat | Consolidado) */}
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3"
+          role="tablist"
+          aria-label="Separar atendimentos por canal do operador"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveChannel === 'all'}
+              disabled={segmentFilter !== 'all'}
+              onClick={() => {
+                setChannelTab('all');
+                setSelectedHour(null);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:cursor-default ${
+                effectiveChannel === 'all'
+                  ? 'border-slate-900 bg-slate-900 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-45'
+              }`}
+            >
+              <span>Consolidado (Voice + Chat)</span>
+              <span
+                className={`font-mono text-[11px] tabular-nums ${
+                  effectiveChannel === 'all' ? 'text-slate-200' : 'text-slate-500'
+                }`}
+              >
+                {channelCounts.all}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveChannel === 'voice'}
+              disabled={segmentFilter === 'chat'}
+              onClick={() => {
+                setChannelTab('voice');
+                setSelectedHour(null);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:cursor-default ${
+                effectiveChannel === 'voice'
+                  ? 'border-blue-600 bg-blue-50 text-blue-800'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-45'
+              }`}
+            >
+              <Phone className="h-3.5 w-3.5" />
+              <span>Somente Voice</span>
+              <span className="font-mono text-[11px] tabular-nums">
+                {channelCounts.voice}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveChannel === 'chat'}
+              disabled={segmentFilter === 'voice'}
+              onClick={() => {
+                setChannelTab('chat');
+                setSelectedHour(null);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:cursor-default ${
+                effectiveChannel === 'chat'
+                  ? 'border-teal-600 bg-teal-50 text-teal-800'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-45'
+              }`}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>Somente Chat</span>
+              <span className="font-mono text-[11px] tabular-nums">
+                {channelCounts.chat}
+              </span>
+            </button>
+          </div>
+
+          <span className="text-[11px] text-slate-500 tabular-nums">
+            Visualização ativa: <strong className="font-semibold text-slate-700">{channelLabel}</strong>
+          </span>
+        </div>
       </div>
 
-      {/* KPI Strip for Selected Operator / Period */}
+      {/* KPI Strip for Selected Operator / Period / Channel Tab */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <p className="text-xs font-medium text-slate-500">
-            {selectedOperator === 'all' ? 'TMA Médio da Equipe' : `TMA — ${selectedOperator}`}
+            {selectedOperator === 'all'
+              ? `TMA Médio (${channelLabel})`
+              : `TMA ${channelLabel} — ${selectedOperator}`}
           </p>
           <p className="mt-1.5 font-mono text-2xl font-semibold text-amber-700 tabular-nums">
             {formatTma(summaryStats.overallTma)}
           </p>
           <p className="mt-1 text-xs text-slate-500 tabular-nums">
-            Voice {formatTma(summaryStats.voiceTma)} · Chat {formatTma(summaryStats.chatTma)}
+            {effectiveChannel === 'voice'
+              ? `${summaryStats.voiceCount} ligações avaliadas`
+              : effectiveChannel === 'chat'
+                ? `${summaryStats.chatCount} chats avaliados`
+                : `Voice ${formatTma(summaryStats.voiceTma)} · Chat ${formatTma(summaryStats.chatTma)}`}
           </p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-medium text-slate-500">Atendimentos no Período</p>
+          <p className="text-xs font-medium text-slate-500">Atendimentos ({channelLabel})</p>
           <p className="mt-1.5 font-mono text-2xl font-semibold text-slate-900 tabular-nums">
             {summaryStats.total}
           </p>
           <p className="mt-1 text-xs text-slate-500 tabular-nums">
-            {summaryStats.voiceCount} Voice · {summaryStats.chatCount} Chat ({summaryStats.activeDays} dia(s))
+            {effectiveChannel === 'all'
+              ? `${summaryStats.voiceCount} Voice · ${summaryStats.chatCount} Chat (${summaryStats.activeDays} dia(s))`
+              : `${summaryStats.activeDays} dia(s) com registro neste canal`}
           </p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <p className="text-xs font-medium text-slate-500">
-            {selectedOperator === 'all' ? 'Maior TMA do Período' : 'Diferença vs Equipe'}
+            {selectedOperator === 'all' ? `Maior TMA (${channelLabel})` : 'Diferença vs Equipe'}
           </p>
           <p className="mt-1.5 font-mono text-2xl font-semibold text-slate-900 tabular-nums">
             {selectedOperator === 'all'
@@ -248,13 +391,13 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
               ? highestOperator
                 ? `${highestOperator.agent} (${highestOperator.totalCalls} atend.)`
                 : 'Sem registros'
-              : `Média da equipe: ${formatTma(teamOverallTma)}`}
+              : `Média da equipe no canal: ${formatTma(teamOverallTma)}`}
           </p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <p className="text-xs font-medium text-slate-500">
-            {selectedOperator === 'all' ? 'Menor TMA do Período' : 'Média Diária do Operador'}
+            {selectedOperator === 'all' ? `Menor TMA (${channelLabel})` : 'Média Diária no Canal'}
           </p>
           <p className="mt-1.5 font-mono text-2xl font-semibold text-slate-900 tabular-nums">
             {selectedOperator === 'all'
@@ -272,9 +415,9 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
               ? lowestOperator
                 ? `${lowestOperator.agent} (${lowestOperator.totalCalls} atend.)`
                 : 'Sem registros'
-              : selectedMetric && selectedMetric.surveyRatePercent !== null
+              : effectiveChannel !== 'chat' && selectedMetric && selectedMetric.surveyRatePercent !== null
                 ? `Pesquisa Voice: ${selectedMetric.surveyRatePercent.toFixed(0)}%`
-                : `${allAgents.length} operador(es) no período`}
+                : `${allAgents.length} operador(es) no recorte`}
           </p>
         </div>
       </div>
@@ -286,7 +429,7 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
             <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="font-display text-base font-semibold text-slate-900">
-                  Comparativo de TMA por Operador
+                  Comparativo de TMA por Operador — {channelLabel}
                 </h3>
                 <p className="mt-0.5 text-xs text-slate-500">
                   Linha tracejada indica o TMA médio da equipe ({formatTma(teamOverallTma)}) · Clique em um operador para abrir a curva detalhada
@@ -333,7 +476,7 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
 
             {displayedAgents.length === 0 ? (
               <p className="py-10 text-center text-xs text-slate-500">
-                Nenhum operador encontrado no período selecionado.
+                Nenhum operador encontrado nesta aba e período selecionados.
               </p>
             ) : (
               <div className="mt-4 space-y-2">
@@ -341,6 +484,14 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
                   const pct = Math.min(100, Math.max(3, (agent.tmaSeconds / maxTmaScale) * 100));
                   const aboveAvg = teamOverallTma > 0 && agent.tmaSeconds > teamOverallTma * 1.1;
                   const delta = agent.deltaFromTeamTmaSeconds;
+                  const barFill =
+                    effectiveChannel === 'chat'
+                      ? aboveAvg
+                        ? 'bg-amber-300'
+                        : 'bg-teal-300'
+                      : aboveAvg
+                        ? 'bg-amber-300'
+                        : 'bg-blue-300';
 
                   return (
                     <button
@@ -361,9 +512,7 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
 
                       <div className="relative h-6 flex-1 rounded bg-slate-100">
                         <div
-                          className={`h-full rounded transition-all duration-200 ${
-                            aboveAvg ? 'bg-amber-300' : 'bg-blue-300'
-                          }`}
+                          className={`h-full rounded transition-all duration-200 ${barFill}`}
                           style={{width: `${pct}%`}}
                         />
                         <div
@@ -384,12 +533,16 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
 
                       <div className="hidden w-64 shrink-0 items-center justify-end gap-3 text-right font-mono text-[11px] text-slate-600 tabular-nums sm:flex">
                         <span>{agent.totalCalls} atend.</span>
-                        <span className="text-slate-300" aria-hidden="true">
-                          ·
-                        </span>
-                        <span>
-                          V {formatTma(agent.voiceTmaSeconds)} / C {formatTma(agent.chatTmaSeconds)}
-                        </span>
+                        {effectiveChannel === 'all' && (
+                          <>
+                            <span className="text-slate-300" aria-hidden="true">
+                              ·
+                            </span>
+                            <span>
+                              {agent.voiceCalls}V / {agent.chatCalls}C
+                            </span>
+                          </>
+                        )}
                         <span className="text-slate-300" aria-hidden="true">
                           ·
                         </span>
@@ -409,10 +562,10 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
           <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
             <div className="border-b border-slate-200 pb-3">
               <h3 className="font-display text-base font-semibold text-slate-900">
-                Tabela de TMA por Operador
+                Tabela de TMA por Operador — {channelLabel}
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                Consolidado de volume, média diária e TMA separado por Voice e Chat no período filtrado
+                Volume, média diária e TMA dos atendimentos no canal selecionado
               </p>
             </div>
 
@@ -425,13 +578,21 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
                     <tr className="border-b border-slate-200 text-[11px] font-semibold text-slate-500">
                       <th className="py-2.5 pr-3">Operador</th>
                       <th className="py-2.5 px-2 text-right">Atend.</th>
-                      <th className="py-2.5 px-2 text-right">Voice</th>
-                      <th className="py-2.5 px-2 text-right">Chat</th>
+                      {effectiveChannel === 'all' && (
+                        <>
+                          <th className="py-2.5 px-2 text-right">Voice</th>
+                          <th className="py-2.5 px-2 text-right">Chat</th>
+                        </>
+                      )}
                       <th className="py-2.5 px-2 text-right">Dias</th>
                       <th className="py-2.5 px-2 text-right">Média/Dia</th>
-                      <th className="py-2.5 px-2 text-right">TMA Voice</th>
-                      <th className="py-2.5 px-2 text-right">TMA Chat</th>
-                      <th className="py-2.5 px-2 text-right">TMA Geral</th>
+                      {effectiveChannel === 'all' && (
+                        <>
+                          <th className="py-2.5 px-2 text-right">TMA Voice</th>
+                          <th className="py-2.5 px-2 text-right">TMA Chat</th>
+                        </>
+                      )}
+                      <th className="py-2.5 px-2 text-right">TMA {channelLabel}</th>
                       <th className="py-2.5 pl-2 text-right">vs Equipe</th>
                     </tr>
                   </thead>
@@ -451,24 +612,32 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
                         <td className="py-2 px-2 text-right font-mono text-slate-800">
                           {agent.totalCalls}
                         </td>
-                        <td className="py-2 px-2 text-right font-mono text-slate-600">
-                          {agent.voiceCalls}
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono text-slate-600">
-                          {agent.chatCalls}
-                        </td>
+                        {effectiveChannel === 'all' && (
+                          <>
+                            <td className="py-2 px-2 text-right font-mono text-slate-600">
+                              {agent.voiceCalls}
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-600">
+                              {agent.chatCalls}
+                            </td>
+                          </>
+                        )}
                         <td className="py-2 px-2 text-right font-mono text-slate-600">
                           {agent.activeDays}
                         </td>
                         <td className="py-2 px-2 text-right font-mono text-slate-700">
                           {agent.avgCallsPerDay.toFixed(1)}
                         </td>
-                        <td className="py-2 px-2 text-right font-mono text-slate-700">
-                          {formatTma(agent.voiceTmaSeconds)}
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono text-slate-700">
-                          {formatTma(agent.chatTmaSeconds)}
-                        </td>
+                        {effectiveChannel === 'all' && (
+                          <>
+                            <td className="py-2 px-2 text-right font-mono text-slate-700">
+                              {formatTma(agent.voiceTmaSeconds)}
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-700">
+                              {formatTma(agent.chatTmaSeconds)}
+                            </td>
+                          </>
+                        )}
                         <td className="py-2 px-2 text-right font-mono font-semibold text-amber-700">
                           {formatTma(agent.tmaSeconds)}
                         </td>
@@ -495,7 +664,7 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
             <div className="flex items-center gap-2 text-slate-800">
               <UserCheck className="h-4 w-4 text-blue-700" />
               <span>
-                Exibindo curva de TMA e atendimentos de{' '}
+                Exibindo curva ({channelLabel}) de{' '}
                 <strong className="font-semibold text-slate-900">{selectedOperator}</strong>
               </span>
             </div>
@@ -514,10 +683,11 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
           <TmaPeakChart
             hourlyBuckets={opHourlyBuckets}
             dailyBuckets={opDailyBuckets}
-            segmentFilter={segmentFilter}
+            segmentFilter={effectiveChannel}
             overallTmaSeconds={summaryStats.overallTma}
             selectedHour={selectedHour}
             onSelectHour={setSelectedHour}
+            hideSplitToggle
           />
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -525,16 +695,16 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
             <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 lg:col-span-7">
               <div className="border-b border-slate-200 pb-3">
                 <h3 className="font-display text-base font-semibold text-slate-900">
-                  TMA Diário do Operador no Período
+                  TMA Diário — {selectedOperator} ({channelLabel})
                 </h3>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Evolução dia a dia de atendimentos e TMA para {selectedOperator}
+                  Evolução dia a dia do que o operador atendeu neste canal
                 </p>
               </div>
 
               {opDailyBuckets.length === 0 ? (
                 <p className="py-8 text-center text-xs text-slate-500">
-                  Nenhum atendimento encontrado para este operador no período.
+                  Nenhum atendimento encontrado para este operador nesta aba e período.
                 </p>
               ) : (
                 <div className="mt-3 max-h-80 overflow-y-auto">
@@ -543,10 +713,14 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
                       <tr className="border-b border-slate-200 text-[11px] font-semibold text-slate-500">
                         <th className="py-2 pr-3">Data</th>
                         <th className="py-2 px-2 text-right">Total</th>
-                        <th className="py-2 px-2 text-right">Voice</th>
-                        <th className="py-2 px-2 text-right">Chat</th>
-                        <th className="py-2 px-2 text-right">TMA Voice</th>
-                        <th className="py-2 px-2 text-right">TMA Chat</th>
+                        {effectiveChannel === 'all' && (
+                          <>
+                            <th className="py-2 px-2 text-right">Voice</th>
+                            <th className="py-2 px-2 text-right">Chat</th>
+                            <th className="py-2 px-2 text-right">TMA Voice</th>
+                            <th className="py-2 px-2 text-right">TMA Chat</th>
+                          </>
+                        )}
                         <th className="py-2 pl-2 text-right">TMA Dia</th>
                       </tr>
                     </thead>
@@ -559,18 +733,22 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
                           <td className="py-1.5 px-2 text-right font-mono text-slate-800">
                             {day.totalCount}
                           </td>
-                          <td className="py-1.5 px-2 text-right font-mono text-slate-600">
-                            {day.voiceCount}
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono text-slate-600">
-                            {day.chatCount}
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono text-slate-600">
-                            {formatTma(day.voiceTmaSeconds)}
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono text-slate-600">
-                            {formatTma(day.chatTmaSeconds)}
-                          </td>
+                          {effectiveChannel === 'all' && (
+                            <>
+                              <td className="py-1.5 px-2 text-right font-mono text-slate-600">
+                                {day.voiceCount}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono text-slate-600">
+                                {day.chatCount}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono text-slate-600">
+                                {formatTma(day.voiceTmaSeconds)}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono text-slate-600">
+                                {formatTma(day.chatTmaSeconds)}
+                              </td>
+                            </>
+                          )}
                           <td className="py-1.5 pl-2 text-right font-mono font-semibold text-amber-700">
                             {formatTma(day.tmaSeconds)}
                           </td>
@@ -582,14 +760,14 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
               )}
             </div>
 
-            {/* Queues & Disconnects for selected operator */}
+            {/* Queues, Chatbot Origin / Survey & Disconnects for selected operator */}
             <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 lg:col-span-5">
               <div className="border-b border-slate-200 pb-3">
                 <h3 className="font-display text-base font-semibold text-slate-900">
-                  Filas e Desligamentos
+                  O que foi atendido — {channelLabel}
                 </h3>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Distribuição dos atendimentos de {selectedOperator}
+                  Filas, origens e desligamentos de {selectedOperator}
                 </p>
               </div>
 
@@ -611,6 +789,38 @@ export const OperatorTmaView: React.FC<OperatorTmaViewProps> = ({
                     </div>
                   )}
                 </div>
+
+                {effectiveChannel === 'chat' && opChatbots.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-700">Origem Chatbot (Chat)</h4>
+                    <div className="mt-2 divide-y divide-slate-100 text-xs tabular-nums">
+                      {opChatbots.map((c) => (
+                        <div key={c.name} className="flex items-center justify-between py-2 gap-2">
+                          <span className="truncate text-slate-700">{c.name}</span>
+                          <span className="shrink-0 font-mono text-slate-900">
+                            {c.count} ({c.sharePercent.toFixed(0)}%) · {formatTma(c.tmaSeconds)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {effectiveChannel === 'voice' && opSurveys.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-700">Transferência p/ Pesquisa (Voice)</h4>
+                    <div className="mt-2 divide-y divide-slate-100 text-xs tabular-nums">
+                      {opSurveys.map((s) => (
+                        <div key={s.name} className="flex items-center justify-between py-2 gap-2">
+                          <span className="truncate text-slate-700">{s.name}</span>
+                          <span className="shrink-0 font-mono text-slate-900">
+                            {s.count} ({s.sharePercent.toFixed(0)}%)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <h4 className="text-xs font-semibold text-slate-700">Desligamento</h4>
